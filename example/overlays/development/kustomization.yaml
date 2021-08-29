@@ -4,8 +4,8 @@ kind: Kustomization
 bases:
   - ../../base
 
-#transformers:
-#  - merge.yaml
+transformers:
+  - merge.yaml
 
 configMapGenerator:
   - name: app-config
