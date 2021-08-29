@@ -4,12 +4,14 @@ kind: Kustomization
 bases:
   - ../../base
 
-transformers:
-  - merge.yaml
+#transformers:
+#  - merge.yaml
 
 configMapGenerator:
   - name: app-config
     behavior: merge
+    envs:
+      - props.env
     files:
       - configs/alpha-a.properties
       - configs/alpha-b.properties

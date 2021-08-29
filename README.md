@@ -1,8 +1,8 @@
 ## Kustomize File Merge Transformer Plugin
 
-Kustomize plugin to append the contents of multiple files into a single file. While Kustomize can merge
-multiple files into a single ConfigMap, where each file has a separate key (filename), it lacks the ability
-to merge the content of multiple keys (file) into a single key (file).
+Kustomize plugin to append the contents of multiple files and file-based environment variables into a single file. 
+While Kustomize can merge multiple files into a single ConfigMap, where each file has a separate key (filename), 
+it lacks the ability to merge the content of multiple keys (files, vars) into a single key (file).  
 
 The motivation for this plugin is to generate a single properties file needed by an application for different
 environments (dev, test, prod).
@@ -56,16 +56,32 @@ metadata:
   name: app-config
 
 argsOneLiner: |
-  alpha.properties,bravo.properties
+  --target alpha.properties,FOO=foo.prop,BAR
+  --target bravo.properties,FOO=foo_bravo.prop
 ```
 
 The value of `argsOneLiner` tells the plugin that `alpha.properties` and `bravo.properties` are merge targets. This
 means that any files within the same ConfigMap with a file name starting with `alpha` or `bravo` will be appended to
 their respective targets. Note that the `meatadata.name` property in `merge.yaml` must match the `metadata.name` 
 property of the target ConfigMap's `metadata.name` property. If these names do not match, the properties files will
-not be merged.
+not be merged. 
 
-To demonstrate, comment out the following lines in `example/overlays/development/kustomization.yaml`:
+This plugin is also (optionally) able to merge environment variables (from files) into the target config file. In
+this case the `props.env` file contains the following:
+
+```
+FOO=test
+BAR=hello
+```
+
+Merging of these variable into target files is accomplished by appending k/v pairs after the target filename where 
+the key is the variable name and the value is an optional replacement property name. If no replacement property name 
+is needed, the variable name alone can be specified. Notice that the same environment variable can be reused on 
+different target files using different property names. In this case, the `FOO` variable is written
+to `alpha.properties` with a property name of `foo.prop` and to `bravo.properties` with a property name of
+`foo_bravo.prop`
+
+To demonstrate this plugin, comment out the following lines in `example/overlays/development/kustomization.yaml`:
 
 ```
 #transformers:
@@ -78,12 +94,14 @@ Then run the following:
 make example-transform
 ```
 
-This will disable the plugin and output what native Kustomize generates; a ConfigMap that combines multiple, 
-separate files:
+This will disable the plugin and output what native kustomize generates; a ConfigMap that combines multiple separate 
+files and variables:
 
 ```
 apiVersion: v1
 data:
+  BAR: hello
+  FOO: test
   alpha-a.properties: a.props=3
   alpha-b.properties: b.props=4
   alpha.properties: |-
@@ -108,11 +126,14 @@ data:
   alpha.properties: |-
     alpha.base.prop=1
     other.prop=2
+    foo.prop=test
+    BAR=hello
     a.props=3
     b.props=4
   bravo.properties: |-
     some.base.prop=1
     some.other.base.prop=2
+    foo_bravo.prop=test
     bravo.data.here=3
 kind: ConfigMap
 metadata:

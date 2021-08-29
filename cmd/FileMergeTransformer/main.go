@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"gopkg.in/yaml.v2"
 	"io"
@@ -14,12 +15,6 @@ import (
 
 const NewLine = "\n"
 
-type Merge struct {
-	Prefix   string
-	FileName string
-	Content  string
-}
-
 func exitOnErr(err error) {
 	if err != nil {
 		os.Exit(1)
@@ -30,11 +25,78 @@ type FileMergeTransformer struct {
 	types.ObjectMeta `json:"metadata,omitempty" yaml:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 }
 
+type multiFlag []string
+
+func (m *multiFlag) String() string {
+	return strings.Join(*m, ",")
+}
+
+func (m *multiFlag) Set(value string) error {
+	*m = append(*m, value)
+	return nil
+}
+
+var targets multiFlag
+
+type envVar struct {
+	Var             string
+	ReplacementName string
+}
+type targetArg struct {
+	TargetFile string
+	envVars    []envVar
+}
+
+func parseTargetArgs(args []string) []*targetArg {
+
+	trgArgs := make([]*targetArg, len(args))
+
+	for i, arg := range args {
+		trgArgs[i] = parseTargetArg(arg)
+	}
+
+	return trgArgs
+}
+
+func parseTargetArg(arg string) *targetArg {
+
+	parts := strings.Split(arg, ",")
+
+	trgArg := &targetArg{
+		TargetFile: parts[0],
+		envVars:    make([]envVar, 0),
+	}
+
+	if len(parts) > 1 {
+		for _, part := range parts[1:] {
+			pairs := strings.Split(part, "=")
+			v := envVar{
+				Var: pairs[0],
+			}
+			if len(pairs) > 1 {
+				v.ReplacementName = pairs[1]
+			}
+			trgArg.envVars = append(trgArg.envVars, v)
+		}
+	}
+
+	return trgArg
+}
+
+type FilePrefix = string
+
 func main() {
 
 	if len(os.Args) < 3 {
 		os.Exit(1)
 	}
+
+	fSet := flag.NewFlagSet("", flag.ExitOnError)
+	fSet.Var(&targets, "target", "the target to merge (can be called multiple times)")
+	err := fSet.Parse(os.Args[2:])
+	exitOnErr(err)
+
+	trgArgs := parseTargetArgs(targets)
 
 	data, err := os.ReadFile(os.Args[1])
 	exitOnErr(err)
@@ -42,13 +104,6 @@ func main() {
 	var t FileMergeTransformer
 	err = yaml.Unmarshal(data, &t)
 	exitOnErr(err)
-
-	mergeArg := strings.Join(os.Args[2:], " ")
-
-	merges := make([]string, 0)
-	for _, item := range strings.Split(mergeArg, ",") {
-		merges = append(merges, strings.TrimSpace(item))
-	}
 
 	resData, err := io.ReadAll(os.Stdin)
 	exitOnErr(err)
@@ -66,22 +121,64 @@ func main() {
 
 			clone := r.DeepCopy()
 
-			toMerge := make([]Merge, 0)
+			toMerge := make(map[string]FilePrefix, 0)
 
 			dataMap := r.GetDataMap()
-			for _, fileName := range merges {
-				if content, ok := dataMap[fileName]; ok {
+
+			newDataMap := clone.GetDataMap()
+
+			for _, trgArg := range trgArgs {
+
+				fileName := trgArg.TargetFile
+
+				if _, ok := dataMap[fileName]; ok {
+
 					idx := strings.LastIndex(fileName, ".")
 					if idx == -1 {
 						os.Exit(1) // file extension required
 					}
-					toMerge = append(toMerge, Merge{fileName[:idx], fileName, content})
+
+					toMerge[fileName] = fileName[:idx]
+
+					for _, eVar := range trgArg.envVars {
+
+						varName := eVar.Var
+
+						if varContent, ok := dataMap[varName]; ok {
+
+							propName := eVar.Var
+							if eVar.ReplacementName != "" {
+								propName = eVar.ReplacementName
+							}
+
+							toAdd := fmt.Sprintf("%s=%s", propName, varContent)
+
+							if _, ok := newDataMap[fileName]; !ok {
+								newDataMap[fileName] = toAdd
+								continue
+							}
+
+							existing := newDataMap[fileName]
+
+							if existing[len(existing)-1:] != NewLine {
+								toAdd = NewLine + toAdd
+							}
+
+							newDataMap[fileName] = newDataMap[fileName] + toAdd
+
+							delete(newDataMap, varName)
+
+						}
+
+					}
+
+					continue
+
 				}
+
 			}
 
-			newDataMap := clone.GetDataMap()
-
-			for _, merge := range toMerge {
+			for targetFileName, prefix := range toMerge {
 
 				for fileName, content := range dataMap {
 
@@ -91,7 +188,7 @@ func main() {
 						os.Exit(1)
 					}
 
-					if fileName == merge.FileName || !strings.HasPrefix(fileName, merge.Prefix) {
+					if fileName == targetFileName || !strings.HasPrefix(fileName, prefix) {
 						continue
 					}
 
@@ -101,7 +198,7 @@ func main() {
 						toAdd = NewLine + toAdd
 					}
 
-					newDataMap[merge.FileName] = newDataMap[merge.FileName] + toAdd
+					newDataMap[targetFileName] = newDataMap[targetFileName] + toAdd
 
 					delete(newDataMap, fileName)
 

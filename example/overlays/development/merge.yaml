@@ -5,4 +5,5 @@ metadata:
   name: app-config
 
 argsOneLiner: |
-  alpha.properties,bravo.properties
+  --target alpha.properties,FOO=foo.prop,BAR
+  --target bravo.properties,FOO=foo_bravo.prop
