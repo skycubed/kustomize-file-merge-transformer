@@ -1,0 +1,32 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: myapp
+spec:
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+        - name: myapp
+          image: busybox
+          command: ["/bin/sh", "-ec", "sleep infinity"]
+          volumeMounts:
+            - name: alpha-prop
+              mountPath: /tmp/alpha.properties
+              subPath: alpha.properties
+            - name: bravo-prop
+              mountPath: /tmp/bravo.properties
+              subPath: bravo.properties
+      volumes:
+        - name: alpha-prop
+          configMap:
+            name: app-config
+        - name: bravo-prop
+          configMap:
+            name: app-config

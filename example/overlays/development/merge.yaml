@@ -1,0 +1,8 @@
+apiVersion: skycubed.github.com/v1
+kind: FileMergeTransformer
+
+metadata:
+  name: app-config
+
+argsOneLiner: |
+  alpha.properties,bravo.properties
